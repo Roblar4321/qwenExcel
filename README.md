@@ -1,8 +1,12 @@
 # qwenExcel
 
 # How to
+
+## First step
 <img width="1900" height="1026" alt="image" src="https://github.com/user-attachments/assets/ceae907e-d220-4b47-8727-ec77a3a339e7" />
+## Second step
 <img width="630" height="544" alt="image" src="https://github.com/user-attachments/assets/39141a2a-0f7e-46f0-bb35-ec0c76f3d43e" />
+## Third step
 <img width="1775" height="672" alt="image" src="https://github.com/user-attachments/assets/6a573e4a-9f1c-4bfb-b872-03aa81add147" />
 
 
