@@ -1,0 +1,166 @@
+Option Explicit
+
+Private Const LM_PORT    As String = "1234"
+Private Const MODEL_NAME As String = "qwen3.5-9b"
+
+Private Function ExtractJsonString(json As String, key As String) As String
+    Dim pos1 As Long, pos2 As Long
+    Dim search As String
+
+    search = """" & key & """:"
+    pos1 = InStr(json, search)
+    If pos1 = 0 Then Exit Function
+
+    pos1 = pos1 + Len(search)
+
+    Do While Mid(json, pos1, 1) = " "
+        pos1 = pos1 + 1
+    Loop
+
+    If Mid(json, pos1, 1) = """" Then
+        pos1 = pos1 + 1
+        pos2 = pos1
+        Do
+            pos2 = InStr(pos2, json, """")
+            If pos2 = 0 Then Exit Function
+            If Mid(json, pos2 - 1, 1) <> "\" Then Exit Do
+            pos2 = pos2 + 1
+        Loop
+        ExtractJsonString = Mid(json, pos1, pos2 - pos1)
+        ExtractJsonString = Replace(ExtractJsonString, "\n", Chr(10))
+        ExtractJsonString = Replace(ExtractJsonString, "\r", Chr(13))
+        ExtractJsonString = Replace(ExtractJsonString, "\" & """", """")
+        ExtractJsonString = Replace(ExtractJsonString, "\\", "\")
+    End If
+End Function
+
+Private Function ParseFirstContent(json As String) As String
+    Dim pos As Long
+    Dim chunk As String
+    Dim candidate As String
+
+    pos = 1
+    Do
+        Dim searchKey As String
+        searchKey = """content"":"
+        pos = InStr(pos, json, searchKey)
+        If pos = 0 Then Exit Do
+
+        chunk = Mid(json, pos, 5000)
+        candidate = ExtractJsonString(chunk, "content")
+        If Len(Trim(candidate)) > 0 Then
+            ParseFirstContent = candidate
+            Exit Function
+        End If
+        pos = pos + Len(searchKey)
+    Loop
+
+    ParseFirstContent = "[No message received]"
+End Function
+
+Private Function EscapeForJson(txt As String) As String
+    Dim result As String
+    Dim k As Integer
+
+    result = txt
+    result = Replace(result, "\", "\\")
+    result = Replace(result, """", "\" & """")
+    result = Replace(result, Chr(10), "\n")
+    result = Replace(result, Chr(13), "\r")
+    result = Replace(result, Chr(9), "\t")
+
+    ' Remove other control characters (0–31 except tab, LF, CR)
+    For k = 0 To 31
+        Select Case k
+            Case 9, 10, 13
+            Case Else
+                result = Replace(result, Chr(k), "")
+        End Select
+    Next k
+
+    EscapeForJson = result
+End Function
+
+Public Function QWEN(prompt As String) As String
+    Dim http          As Object
+    Dim url           As String
+    Dim payload       As String
+    Dim response      As String
+    Dim escapedPrompt As String
+
+    escapedPrompt = EscapeForJson(prompt)
+
+    url = "http://localhost:" & LM_PORT & "/api/v1/chat"
+
+    payload = "{" & _
+        """model"":""" & MODEL_NAME & """," & _
+        """temperature"":0," & _
+        """max_output_tokens"":500," & _
+        """input"":[{""type"":""text"",""content"":""" & escapedPrompt & """}]" & _
+        "}"
+
+    On Error GoTo ErrHandler
+    Set http = CreateObject("MSXML2.XMLHTTP.6.0")
+
+    With http
+        .Open "POST", url, False
+        .setRequestHeader "Content-Type", "application/json"
+        .send payload
+        response = .responseText
+    End With
+
+    QWEN = ParseFirstContent(response)
+    Exit Function
+
+ErrHandler:
+    QWEN = "[Error: " & Err.Description & "]"
+End Function
+
+Public Sub QWEN_Dialog()
+    Dim prompt    As String
+    Dim rangeText As String
+    Dim fullPrompt As String
+    Dim result    As String
+    Dim sel       As Range
+    Dim rows()    As String
+    Dim cols()    As String
+    Dim i As Long, j As Long
+
+    Set sel = Selection
+
+    If Not sel Is Nothing And sel.Cells.Count > 0 Then
+        ReDim rows(1 To sel.Rows.Count)
+        For i = 1 To sel.Rows.Count
+            ReDim cols(1 To sel.Columns.Count)
+            For j = 1 To sel.Columns.Count
+                cols(j) = CStr(sel.Cells(i, j).Value)
+            Next j
+            rows(i) = Join(cols, Chr(9))
+        Next i
+        rangeText = Join(rows, Chr(10))
+    End If
+
+    prompt = InputBox("What do you want Qwen to do with the selected cells?" & Chr(10) & _
+                      "(Range: " & sel.Address & ")", "LM Studio – Qwen")
+    If Len(Trim(prompt)) = 0 Then Exit Sub
+
+    If Len(rangeText) > 0 Then
+        fullPrompt = prompt & Chr(10) & Chr(10) & _
+                     "Here is the data from the selected range:" & Chr(10) & rangeText
+    Else
+        fullPrompt = prompt
+    End If
+
+    Application.StatusBar = "Waiting for response from Qwen..."
+    Application.Cursor = xlWait
+
+    result = QWEN(fullPrompt)
+
+    Application.Cursor = xlDefault
+    Application.StatusBar = False
+
+    Dim targetCell As Range
+    Set targetCell = sel.Offset(sel.Rows.Count, 0).Cells(1, 1)
+    targetCell.Value = result
+    targetCell.Select
+End Sub
